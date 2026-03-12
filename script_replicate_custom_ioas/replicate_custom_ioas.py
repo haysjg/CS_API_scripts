@@ -243,6 +243,33 @@ def select_children(children: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             print_error("Invalid input. Please enter numbers separated by commas, 'all', or 'q'")
 
 
+def ask_apply_to_policies() -> bool:
+    """
+    Ask user if they want to apply IOAs to prevention policies.
+
+    Returns:
+        True if user wants to apply, False otherwise
+    """
+    print()
+    print_section("PREVENTION POLICIES", char="─", width=80)
+    print()
+    print(f"{Colors.WARNING}Do you want to apply the replicated Custom IOAs to ALL prevention policies in the Child CIDs?{Colors.RESET}")
+    print()
+    print("  • This will link each replicated IOA to all prevention policies matching the IOA platform")
+    print("  • The IOAs will be enforced on hosts using those policies")
+    print()
+
+    while True:
+        choice = input(f"{Colors.HIGHLIGHT}Apply to all prevention policies? (yes/no): {Colors.RESET}").strip().lower()
+
+        if choice in ['yes', 'y']:
+            print_success("Will apply IOAs to all prevention policies")
+            return True
+        elif choice in ['no', 'n']:
+            print_info("IOAs will be replicated but not applied to policies")
+            return False
+        else:
+            print_error("Please answer 'yes' or 'no'")
 
 
 def replicate_ioa_to_child(ioa: Dict[str, Any], child_cid: str, client_id: str, client_secret: str, base_url: str) -> Optional[str]:
@@ -499,12 +526,13 @@ def replicate_ioa_to_child(ioa: Dict[str, Any], child_cid: str, client_id: str, 
         return None
 
 
-def apply_ioa_to_policies(ioa_id: str, child_cid: str, client_id: str, client_secret: str, base_url: str) -> int:
+def apply_ioa_to_policies(ioa_id: str, ioa_platform: str, child_cid: str, client_id: str, client_secret: str, base_url: str) -> int:
     """
-    Apply an IOA to all prevention policies in a Child CID.
+    Apply an IOA to all prevention policies in a Child CID that match the IOA platform.
 
     Args:
         ioa_id: IOA rule group ID
+        ioa_platform: IOA platform (windows, mac, linux)
         child_cid: Child CID
         client_id: API client ID
         client_secret: API client secret
@@ -523,7 +551,7 @@ def apply_ioa_to_policies(ioa_id: str, child_cid: str, client_id: str, client_se
         member_cid=child_cid
     )
 
-    # Get all prevention policies
+    # Get all prevention policies with details
     query_response = prevention.queryCombinedPreventionPolicies()
 
     if query_response['status_code'] != 200:
@@ -534,6 +562,15 @@ def apply_ioa_to_policies(ioa_id: str, child_cid: str, client_id: str, client_se
     if not policies:
         return 0
 
+    # Filter policies by matching platform
+    matching_policies = [
+        p for p in policies
+        if p.get('platform_name', '').lower() == ioa_platform.lower()
+    ]
+
+    if not matching_policies:
+        return 0
+
     # Spinner for applying to policies
     spinner_running = True
     spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
@@ -541,7 +578,7 @@ def apply_ioa_to_policies(ioa_id: str, child_cid: str, client_id: str, client_se
     def spinner():
         idx = 0
         while spinner_running:
-            sys.stdout.write(f'\r      {Colors.INFO}{spinner_chars[idx % len(spinner_chars)]}{Colors.RESET} Applying to {len(policies)} prevention policies (this may take several minutes)...')
+            sys.stdout.write(f'\r      {Colors.INFO}{spinner_chars[idx % len(spinner_chars)]}{Colors.RESET} Applying to {len(matching_policies)} {ioa_platform} prevention policies...')
             sys.stdout.flush()
             idx += 1
             time.sleep(0.1)
@@ -552,40 +589,30 @@ def apply_ioa_to_policies(ioa_id: str, child_cid: str, client_id: str, client_se
     applied_count = 0
 
     try:
-        for policy in policies:
+        for policy in matching_policies:
             policy_id = policy['id']
 
-            # Get current IOA rule groups for this policy
-            current_ioa_groups = policy.get('ioa_rule_groups', [])
-
             # Check if IOA is already assigned
-            ioa_ids = []
-            for group in current_ioa_groups:
-                if isinstance(group, dict):
-                    ioa_ids.append(group.get('id'))
-                else:
-                    ioa_ids.append(group)
+            current_ioa_groups = policy.get('ioa_rule_groups', [])
+            ioa_ids = [g.get('id') if isinstance(g, dict) else g for g in current_ioa_groups]
 
-            # Add the new IOA if not already present
             if ioa_id not in ioa_ids:
-                ioa_ids.append(ioa_id)
+                # Use performPreventionPoliciesAction with add-rule-group
+                action_params = [{
+                    "name": "rule_group_id",
+                    "value": ioa_id
+                }]
 
-                # Update policy to include the IOA
-                update_response = prevention.updatePreventionPolicies(
-                    ids=[policy_id],
-                    body={
-                        "resources": [{
-                            "id": policy_id,
-                            "ioa_rule_groups": [{"id": ioa_id, "version": 1} for ioa_id in ioa_ids],
-                            "prevention_settings": policy.get('prevention_settings', [])
-                        }]
-                    }
+                response = prevention.perform_policies_action(
+                    action_name="add-rule-group",
+                    action_parameters=action_params,
+                    ids=[policy_id]
                 )
 
-                if update_response['status_code'] in [200, 201]:
+                if response['status_code'] in [200, 201]:
                     applied_count += 1
             else:
-                # Already assigned, count it
+                # Already assigned
                 applied_count += 1
 
     finally:
@@ -748,7 +775,7 @@ def main():
                 # Apply to policies if requested
                 if apply_to_policies and new_ioa_id:
                     policies_count = apply_ioa_to_policies(
-                        new_ioa_id, child_cid, client_id, client_secret, base_url
+                        new_ioa_id, ioa['platform'], child_cid, client_id, client_secret, base_url
                     )
                     if policies_count > 0:
                         print_info(f"      Applied to {policies_count} prevention policy/policies")
