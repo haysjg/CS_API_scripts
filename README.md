@@ -1,0 +1,203 @@
+# CrowdStrike Falcon Automation Scripts
+
+Python automation scripts for CrowdStrike Falcon platform using the FalconPy SDK.
+
+## Overview
+
+This repository contains scripts to automate common administrative and SOC analyst tasks in the CrowdStrike Falcon platform, enabling operations at scale. All scripts support Flight Control environments and provide interactive selection modes with colored visual output.
+
+## Available Scripts
+
+### 1. [Custom Roles Analyzer](script_analyze_roles/)
+
+Analyzes custom roles in a Flight Control environment and generates comprehensive reports.
+
+**Quick Start:**
+```bash
+python script_analyze_roles/analyze_roles.py --config config/credentials.json
+```
+
+**Key Features:**
+- Interactive role and child CID selection
+- Coverage analysis with visual matrix
+- Generates JSON, text, and markdown reports
+- Manual replication guides for missing roles
+
+**[→ Full Documentation](script_analyze_roles/README.md)**
+
+---
+
+### 2. [Devices & Policies Exporter](script_export_devices_policies/)
+
+Exports devices, host groups, and policies to CSV format for Flight Control CIDs.
+
+**Quick Start:**
+```bash
+python script_export_devices_policies/export_devices_policies.py --config config/credentials.json
+```
+
+**Key Features:**
+- Interactive CID selection
+- CSV export with 19 columns
+- Differentiates Applied vs Assigned policies
+- Comprehensive device and policy data
+
+**[→ Full Documentation](script_export_devices_policies/README.md)**
+
+---
+
+### 3. [Custom IOAs Replicator](script_replicate_custom_ioas/)
+
+Replicates Custom IOA (Indicator of Attack) rule groups from Parent CID to Child CIDs.
+
+**Quick Start:**
+```bash
+python script_replicate_custom_ioas/replicate_custom_ioas.py --config config/credentials.json
+```
+
+**Key Features:**
+- Interactive IOA and Child CID selection
+- Complete rule group replication
+- Optional application to prevention policies
+- Real-time progress with spinner animations
+
+**[→ Full Documentation](script_replicate_custom_ioas/README.md)**
+
+---
+
+## Quick Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/haysjg/CS_API_scripts.git
+cd CS_API_scripts
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure credentials
+cp config/credentials.json.example config/credentials.json
+# Edit config/credentials.json with your API credentials
+```
+
+**[→ Detailed Installation Guide](INSTALLATION.md)**
+
+## Prerequisites
+
+- Python 3.9 or higher
+- FalconPy SDK 1.6.0 or higher
+- CrowdStrike Falcon API credentials (Client ID and Secret)
+
+### API Scopes by Script
+
+| Script | Required Scopes |
+|--------|----------------|
+| **analyze_roles.py** | User Management: Read |
+| **export_devices_policies.py** | Hosts: Read, Host Groups: Read, Prevention Policies: Read, Response Policies: Read, Sensor Update Policies: Read |
+| **replicate_custom_ioas.py** | Custom IOA Rules: Read/Write, Prevention Policies: Read/Write (if applying), Flight Control: Read |
+
+## Credential Configuration
+
+All scripts support **three credential methods** with automatic fallback:
+
+### Method 1: Config File
+```bash
+cp config/credentials.json.example config/credentials.json
+# Edit with your credentials
+python <script> --config config/credentials.json
+```
+
+### Method 2: Environment Variables (Recommended)
+```powershell
+# PowerShell
+$env:FALCON_CLIENT_ID = "your_client_id"
+$env:FALCON_CLIENT_SECRET = "your_client_secret"
+python <script>
+```
+
+### Method 3: CLI Arguments
+```bash
+python <script> --client-id "YOUR_ID" --client-secret "YOUR_SECRET"
+```
+
+**[→ Complete Credentials Guide](CREDENTIALS_GUIDE.md)**
+
+## Common Features
+
+All scripts in this repository share:
+
+- ✨ **Interactive Mode** - Select specific items to process
+- ✨ **Colored Output** - Easy-to-read terminal feedback
+- ✨ **Progress Indicators** - Real-time visual progress
+- ✨ **Flight Control Support** - Handle Parent and Child CIDs
+- ✨ **Multi-Credential Support** - Config file, env vars, or CLI args
+- ✨ **Non-Interactive Mode** - Automation-friendly operation
+
+## Project Structure
+
+```
+CS_API_scripts/
+├── script_analyze_roles/         # Custom roles analyzer
+│   ├── analyze_roles.py          # Main script
+│   ├── README.md                 # Detailed documentation
+│   ├── INTERACTIVE_GUIDE.md      # Interactive mode guide
+│   └── VISUAL_OUTPUT_FEATURE.md  # Visual features docs
+├── script_export_devices_policies/ # Device & policy exporter
+│   ├── export_devices_policies.py # Main script
+│   └── README.md                 # Detailed documentation
+├── config/                       # Configuration files
+│   ├── credentials.json.example  # Template
+│   └── credentials.json          # Your credentials (gitignored)
+├── utils/                        # Shared utilities
+│   ├── auth.py                   # Authentication helpers
+│   └── formatting.py             # Visual formatting
+├── requirements.txt              # Python dependencies
+├── INSTALLATION.md               # Installation guide
+├── CREDENTIALS_GUIDE.md          # Credentials setup guide
+└── README.md                     # This file
+```
+
+## Usage Examples
+
+### Analyze Custom Roles (Interactive)
+```bash
+python script_analyze_roles/analyze_roles.py --config config/credentials.json
+# Select roles and child CIDs when prompted
+```
+
+### Export All Devices (All CIDs)
+```bash
+python script_export_devices_policies/export_devices_policies.py \
+  --config config/credentials.json \
+  --non-interactive
+```
+
+### Use Environment Variables
+```powershell
+$env:FALCON_CLIENT_ID = "abc123..."
+$env:FALCON_CLIENT_SECRET = "xyz789..."
+python script_analyze_roles/analyze_roles.py
+```
+
+## Documentation
+
+### Script-Specific Documentation
+- [script_analyze_roles/README.md](script_analyze_roles/README.md) - Custom roles analyzer
+- [script_export_devices_policies/README.md](script_export_devices_policies/README.md) - Devices & policies exporter
+
+### General Documentation
+- [INSTALLATION.md](INSTALLATION.md) - Installation and setup
+- [CREDENTIALS_GUIDE.md](CREDENTIALS_GUIDE.md) - Credential configuration
+- [FalconPy Documentation](https://falconpy.io) - FalconPy SDK docs
+- [CrowdStrike API Documentation](https://falcon.crowdstrike.com/documentation) - Falcon API reference
+
+## Support & Resources
+
+- **FalconPy SDK:** https://github.com/CrowdStrike/falconpy
+- **FalconPy Wiki:** https://github.com/CrowdStrike/falconpy/wiki
+- **CrowdStrike API Docs:** https://falcon.crowdstrike.com/documentation
+- **Issues:** https://github.com/haysjg/CS_API_scripts/issues
+
+## License
+
+This project is provided as-is for automation purposes.
