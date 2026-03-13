@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Export devices, groups, and policies to CSV for Flight Control CIDs.
+Export devices, groups, and policies to CSV/Excel for Flight Control CIDs.
 
 This script exports detailed device information including:
 - Device details (hostname, OS, etc.)
@@ -9,16 +9,21 @@ This script exports detailed device information including:
 - Response policies (applied vs assigned)
 - Sensor update policies (applied vs assigned)
 
-Supports interactive CID selection in Flight Control environments.
+Features:
+- Multi-format export (CSV and Excel)
+- Device filtering (platform, status, groups, last seen)
+- Statistics and anomaly detection
+- Interactive CID selection in Flight Control environments
 """
 
 import sys
 import os
 import csv
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 import json
+from collections import Counter
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -30,12 +35,270 @@ from utils.formatting import (
     print_progress, print_summary_box, Colors, print_child_item
 )
 
+try:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, numbers
+    from openpyxl.utils import get_column_letter
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
+
 # Fix Windows console encoding for emojis
 if sys.platform == 'win32':
     try:
         sys.stdout.reconfigure(encoding='utf-8')
     except:
         pass
+
+
+class DeviceFilters:
+    """Device filtering configuration."""
+    def __init__(self, platforms=None, statuses=None, groups=None, stale_days=None):
+        self.platforms = [p.lower() for p in platforms] if platforms else None
+        self.statuses = [s.lower() for s in statuses] if statuses else None
+        self.groups = groups or None
+        self.stale_days = stale_days
+
+    def should_include(self, device: Dict[str, Any], host_groups: Dict[str, str]) -> bool:
+        """Check if device passes filters."""
+        # Platform filter
+        if self.platforms:
+            platform = device.get('platform_name', '').lower()
+            if platform not in self.platforms:
+                return False
+
+        # Status filter
+        if self.statuses:
+            status = device.get('status', '').lower()
+            if status not in self.statuses:
+                return False
+
+        # Group filter
+        if self.groups:
+            device_groups = device.get('groups', [])
+            device_group_names = [host_groups.get(gid, '').lower() for gid in device_groups]
+            # Check if any device group matches any filter group
+            if not any(fg.lower() in dgn for fg in self.groups for dgn in device_group_names):
+                return False
+
+        # Stale devices filter
+        if self.stale_days is not None:
+            last_seen = device.get('last_seen', '')
+            if last_seen:
+                try:
+                    last_seen_dt = datetime.strptime(last_seen, '%Y-%m-%dT%H:%M:%SZ')
+                    if (datetime.utcnow() - last_seen_dt).days > self.stale_days:
+                        return False
+                except:
+                    pass
+
+        return True
+
+
+def detect_anomalies(devices: List[Dict[str, Any]], policies: Dict[str, Dict[str, str]]) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Detect anomalies in device configurations.
+
+    Returns:
+        Dictionary with anomaly type as key and list of affected devices
+    """
+    anomalies = {
+        'no_prevention_policy': [],
+        'no_response_policy': [],
+        'no_sensor_policy': [],
+        'policy_not_applied': [],
+        'no_host_group': [],
+        'stale_devices': [],
+    }
+
+    for device in devices:
+        device_id = device.get('device_id', '')
+        hostname = device.get('hostname', '')
+        last_seen = device.get('last_seen', '')
+
+        # Check prevention policy
+        prevention_policy_id = device.get('device_policies', {}).get('prevention', {}).get('policy_id')
+        if not prevention_policy_id:
+            anomalies['no_prevention_policy'].append({
+                'device_id': device_id,
+                'hostname': hostname,
+                'issue': 'No prevention policy assigned'
+            })
+        else:
+            prevention_applied = device.get('device_policies', {}).get('prevention', {}).get('applied', False)
+            if not prevention_applied:
+                anomalies['policy_not_applied'].append({
+                    'device_id': device_id,
+                    'hostname': hostname,
+                    'issue': 'Prevention policy not applied'
+                })
+
+        # Check response policy
+        response_policy_id = device.get('device_policies', {}).get('remote_response', {}).get('policy_id')
+        if not response_policy_id:
+            anomalies['no_response_policy'].append({
+                'device_id': device_id,
+                'hostname': hostname,
+                'issue': 'No response policy assigned'
+            })
+
+        # Check sensor update policy
+        sensor_policy_id = device.get('device_policies', {}).get('sensor_update', {}).get('policy_id')
+        if not sensor_policy_id:
+            anomalies['no_sensor_policy'].append({
+                'device_id': device_id,
+                'hostname': hostname,
+                'issue': 'No sensor update policy assigned'
+            })
+
+        # Check host groups
+        device_groups = device.get('groups', [])
+        if not device_groups:
+            anomalies['no_host_group'].append({
+                'device_id': device_id,
+                'hostname': hostname,
+                'issue': 'Not in any host group'
+            })
+
+        # Check stale devices (not seen in 30+ days)
+        if last_seen:
+            try:
+                last_seen_dt = datetime.strptime(last_seen, '%Y-%m-%dT%H:%M:%SZ')
+                days_stale = (datetime.utcnow() - last_seen_dt).days
+                if days_stale > 30:
+                    anomalies['stale_devices'].append({
+                        'device_id': device_id,
+                        'hostname': hostname,
+                        'issue': f'Not seen for {days_stale} days'
+                    })
+            except:
+                pass
+
+    return anomalies
+
+
+def calculate_statistics(devices: List[Dict[str, Any]], host_groups: Dict[str, str],
+                         policies: Dict[str, Dict[str, str]]) -> Dict[str, Any]:
+    """
+    Calculate statistics from device data.
+
+    Returns:
+        Dictionary with various statistics
+    """
+    stats = {
+        'total_devices': len(devices),
+        'by_platform': Counter(),
+        'by_status': Counter(),
+        'by_host_group': Counter(),
+        'by_prevention_policy': Counter(),
+        'by_response_policy': Counter(),
+        'by_sensor_policy': Counter(),
+    }
+
+    for device in devices:
+        # Platform
+        platform = device.get('platform_name', 'Unknown')
+        stats['by_platform'][platform] += 1
+
+        # Status
+        status = device.get('status', 'Unknown')
+        stats['by_status'][status] += 1
+
+        # Host groups
+        device_groups = device.get('groups', [])
+        if device_groups:
+            for gid in device_groups:
+                group_name = host_groups.get(gid, gid)
+                stats['by_host_group'][group_name] += 1
+        else:
+            stats['by_host_group']['No group'] += 1
+
+        # Prevention policy
+        prev_policy_id = device.get('device_policies', {}).get('prevention', {}).get('policy_id')
+        if prev_policy_id:
+            policy_name = policies['prevention'].get(prev_policy_id, 'Unknown')
+            stats['by_prevention_policy'][policy_name] += 1
+        else:
+            stats['by_prevention_policy']['No policy'] += 1
+
+        # Response policy
+        resp_policy_id = device.get('device_policies', {}).get('remote_response', {}).get('policy_id')
+        if resp_policy_id:
+            policy_name = policies['response'].get(resp_policy_id, 'Unknown')
+            stats['by_response_policy'][policy_name] += 1
+        else:
+            stats['by_response_policy']['No policy'] += 1
+
+        # Sensor policy
+        sensor_policy_id = device.get('device_policies', {}).get('sensor_update', {}).get('policy_id')
+        if sensor_policy_id:
+            policy_name = policies['sensor_update'].get(sensor_policy_id, 'Unknown')
+            stats['by_sensor_policy'][policy_name] += 1
+        else:
+            stats['by_sensor_policy']['No policy'] += 1
+
+    return stats
+
+
+def print_statistics(stats: Dict[str, Any], anomalies: Dict[str, List[Dict[str, Any]]]):
+    """Print statistics and anomalies to console."""
+    print_header("STATISTICS & ANOMALIES", width=80)
+    print()
+
+    # Total devices
+    print(f"{Colors.HIGHLIGHT}Total Devices:{Colors.RESET} {stats['total_devices']}")
+    print()
+
+    # Platform distribution
+    print(f"{Colors.INFO}Platform Distribution:{Colors.RESET}")
+    total = stats['total_devices']
+    for platform, count in stats['by_platform'].most_common():
+        pct = (count / total * 100) if total > 0 else 0
+        bar_length = int(pct / 2)
+        bar = '█' * bar_length + '░' * (50 - bar_length)
+        print(f"  {platform:20s} [{bar}] {count:4d} ({pct:5.1f}%)")
+    print()
+
+    # Status distribution
+    print(f"{Colors.INFO}Status Distribution:{Colors.RESET}")
+    for status, count in stats['by_status'].most_common():
+        pct = (count / total * 100) if total > 0 else 0
+        print(f"  {status:20s} {count:4d} ({pct:5.1f}%)")
+    print()
+
+    # Top host groups
+    print(f"{Colors.INFO}Top 10 Host Groups:{Colors.RESET}")
+    for group, count in stats['by_host_group'].most_common(10):
+        print(f"  {group[:50]:50s} {count:4d}")
+    print()
+
+    # Anomalies
+    print_header("ANOMALIES DETECTED", width=80)
+    print()
+
+    total_anomalies = sum(len(devices) for devices in anomalies.values())
+
+    if total_anomalies == 0:
+        print_success("No anomalies detected!")
+    else:
+        print_warning(f"Found {total_anomalies} anomaly/anomalies")
+        print()
+
+        anomaly_labels = {
+            'no_prevention_policy': 'No Prevention Policy',
+            'no_response_policy': 'No Response Policy',
+            'no_sensor_policy': 'No Sensor Update Policy',
+            'policy_not_applied': 'Policy Not Applied',
+            'no_host_group': 'No Host Group',
+            'stale_devices': 'Stale Devices (>30 days)',
+        }
+
+        for anomaly_type, label in anomaly_labels.items():
+            count = len(anomalies[anomaly_type])
+            if count > 0:
+                print(f"  {Colors.WARNING}⚠{Colors.RESET} {label:30s} {count:4d} device(s)")
+
+    print()
 
 
 def get_all_cids(flight_control: FlightControl) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
@@ -401,7 +664,8 @@ def get_policies(prevention: PreventionPolicy, response_policy: ResponsePolicies
 
 
 def export_cid_to_csv(cid_info: Dict[str, Any], devices: List[Dict[str, Any]],
-                      host_groups: Dict[str, str], policies: Dict[str, Dict[str, str]]) -> List[Dict[str, Any]]:
+                      host_groups: Dict[str, str], policies: Dict[str, Dict[str, str]],
+                      filters: Optional[DeviceFilters] = None) -> List[Dict[str, Any]]:
     """
     Convert device data to CSV rows.
 
@@ -410,6 +674,7 @@ def export_cid_to_csv(cid_info: Dict[str, Any], devices: List[Dict[str, Any]],
         devices: List of device details
         host_groups: Host group ID to name mapping
         policies: Policy mappings
+        filters: Optional device filters
 
     Returns:
         List of CSV row dictionaries
@@ -417,6 +682,10 @@ def export_cid_to_csv(cid_info: Dict[str, Any], devices: List[Dict[str, Any]],
     rows = []
 
     for device in devices:
+        # Apply filters if provided
+        if filters and not filters.should_include(device, host_groups):
+            continue
+
         # Get host groups
         device_groups = device.get('groups', [])
         group_names = [host_groups.get(gid, gid) for gid in device_groups]
@@ -466,10 +735,181 @@ def export_cid_to_csv(cid_info: Dict[str, Any], devices: List[Dict[str, Any]],
     return rows
 
 
+def export_to_excel(output_file: str, all_data: Dict[str, List[Dict[str, Any]]],
+                    all_stats: Dict[str, Dict[str, Any]], all_anomalies: Dict[str, Dict[str, List[Dict[str, Any]]]]):
+    """
+    Export data to Excel with multiple sheets and formatting.
+
+    Args:
+        output_file: Output file path
+        all_data: Dictionary with CID name as key and device rows as value
+        all_stats: Dictionary with CID name as key and statistics as value
+        all_anomalies: Dictionary with CID name as key and anomalies as value
+    """
+    if not EXCEL_AVAILABLE:
+        print_warning("Excel export not available (openpyxl not installed)")
+        return
+
+    wb = Workbook()
+
+    # Styles
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True, size=11)
+    warning_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    error_fill = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
+    success_fill = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+
+    # Remove default sheet
+    if 'Sheet' in wb.sheetnames:
+        del wb['Sheet']
+
+    # Summary sheet
+    ws_summary = wb.create_sheet("Summary", 0)
+    ws_summary['A1'] = "Devices & Policies Export Summary"
+    ws_summary['A1'].font = Font(size=16, bold=True)
+    ws_summary.merge_cells('A1:D1')
+
+    ws_summary['A3'] = "Generated:"
+    ws_summary['B3'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    row = 5
+    ws_summary[f'A{row}'] = "CID Name"
+    ws_summary[f'B{row}'] = "Total Devices"
+    ws_summary[f'C{row}'] = "Anomalies"
+    ws_summary[f'D{row}'] = "Status"
+
+    for col in ['A', 'B', 'C', 'D']:
+        ws_summary[f'{col}{row}'].font = header_font
+        ws_summary[f'{col}{row}'].fill = header_fill
+
+    for cid_name in all_data.keys():
+        row += 1
+        device_count = len(all_data[cid_name])
+        anomaly_count = sum(len(devices) for devices in all_anomalies.get(cid_name, {}).values())
+
+        ws_summary[f'A{row}'] = cid_name
+        ws_summary[f'B{row}'] = device_count
+        ws_summary[f'C{row}'] = anomaly_count
+
+        status_cell = ws_summary[f'D{row}']
+        if anomaly_count == 0:
+            status_cell.value = "✓ Clean"
+            status_cell.fill = success_fill
+        elif anomaly_count < device_count * 0.1:
+            status_cell.value = "⚠ Minor issues"
+            status_cell.fill = warning_fill
+        else:
+            status_cell.value = "✗ Issues"
+            status_cell.fill = error_fill
+
+    ws_summary.column_dimensions['A'].width = 40
+    ws_summary.column_dimensions['B'].width = 15
+    ws_summary.column_dimensions['C'].width = 15
+    ws_summary.column_dimensions['D'].width = 20
+
+    # Device sheets (one per CID)
+    fieldnames = [
+        'CID Name', 'CID', 'CID Type', 'Device ID', 'Hostname', 'OS Version', 'Platform',
+        'Last Seen', 'Status', 'Host Groups', 'Prevention Policy', 'Prevention Status',
+        'Response Policy', 'Response Status', 'Sensor Update Policy', 'Sensor Update Status',
+        'Agent Version', 'Service Provider', 'Service Provider Account ID'
+    ]
+
+    for cid_name, rows in all_data.items():
+        if not rows:
+            continue
+
+        # Sanitize sheet name
+        sheet_name = cid_name[:31].replace('/', '-').replace('\\', '-').replace(':', '-')
+        ws = wb.create_sheet(sheet_name)
+
+        # Headers
+        for col_idx, field in enumerate(fieldnames, 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.value = field
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = thin_border
+
+        # Data
+        for row_idx, row_data in enumerate(rows, 2):
+            for col_idx, field in enumerate(fieldnames, 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                cell.value = row_data.get(field, '')
+                cell.border = thin_border
+
+                # Color coding for status
+                if field == 'Prevention Status' or field == 'Response Status' or field == 'Sensor Update Status':
+                    if cell.value == 'Applied':
+                        cell.fill = success_fill
+                    elif cell.value == 'Assigned':
+                        cell.fill = warning_fill
+                    elif cell.value == 'None':
+                        cell.fill = error_fill
+
+        # Auto-filter
+        ws.auto_filter.ref = ws.dimensions
+
+        # Freeze panes (first row)
+        ws.freeze_panes = 'A2'
+
+        # Auto-adjust column widths
+        for col_idx, field in enumerate(fieldnames, 1):
+            max_length = len(field)
+            for row_idx in range(2, min(len(rows) + 2, 100)):  # Check first 100 rows
+                cell_value = ws.cell(row=row_idx, column=col_idx).value
+                if cell_value:
+                    max_length = max(max_length, len(str(cell_value)))
+            ws.column_dimensions[get_column_letter(col_idx)].width = min(max_length + 2, 50)
+
+    # Anomalies sheet
+    if any(all_anomalies.values()):
+        ws_anomalies = wb.create_sheet("Anomalies")
+
+        ws_anomalies['A1'] = "Detected Anomalies"
+        ws_anomalies['A1'].font = Font(size=14, bold=True)
+        ws_anomalies.merge_cells('A1:D1')
+
+        row = 3
+        ws_anomalies[f'A{row}'] = "CID"
+        ws_anomalies[f'B{row}'] = "Device ID"
+        ws_anomalies[f'C{row}'] = "Hostname"
+        ws_anomalies[f'D{row}'] = "Issue"
+
+        for col in ['A', 'B', 'C', 'D']:
+            ws_anomalies[f'{col}{row}'].font = header_font
+            ws_anomalies[f'{col}{row}'].fill = header_fill
+
+        for cid_name, anomalies in all_anomalies.items():
+            for anomaly_type, devices in anomalies.items():
+                for device_info in devices:
+                    row += 1
+                    ws_anomalies[f'A{row}'] = cid_name
+                    ws_anomalies[f'B{row}'] = device_info.get('device_id', '')
+                    ws_anomalies[f'C{row}'] = device_info.get('hostname', '')
+                    ws_anomalies[f'D{row}'] = device_info.get('issue', '')
+                    ws_anomalies[f'D{row}'].fill = warning_fill
+
+        ws_anomalies.column_dimensions['A'].width = 30
+        ws_anomalies.column_dimensions['B'].width = 40
+        ws_anomalies.column_dimensions['C'].width = 30
+        ws_anomalies.column_dimensions['D'].width = 40
+
+    # Save workbook
+    wb.save(output_file)
+    print_success(f"Excel file created: {output_file}")
+
+
 def main():
     """Main function."""
     parser = argparse.ArgumentParser(
-        description='Export CrowdStrike devices, groups, and policies to CSV'
+        description='Export CrowdStrike devices, groups, and policies to CSV/Excel'
     )
     parser.add_argument(
         '--config',
@@ -495,12 +935,39 @@ def main():
     parser.add_argument(
         '--output',
         type=str,
-        help='Output CSV file path (default: devices_export_TIMESTAMP.csv)'
+        help='Output file path (default: devices_export_TIMESTAMP with auto-detected format)'
+    )
+    parser.add_argument(
+        '--format',
+        type=str,
+        choices=['csv', 'excel', 'both'],
+        default='excel',
+        help='Output format (default: excel)'
     )
     parser.add_argument(
         '--non-interactive',
         action='store_true',
         help='Export all CIDs without prompting'
+    )
+    parser.add_argument(
+        '--filter-platform',
+        type=str,
+        help='Filter by platform (comma-separated: Windows,Linux,Mac)'
+    )
+    parser.add_argument(
+        '--filter-status',
+        type=str,
+        help='Filter by status (comma-separated: normal,containment)'
+    )
+    parser.add_argument(
+        '--filter-groups',
+        type=str,
+        help='Filter by host groups (comma-separated, partial match)'
+    )
+    parser.add_argument(
+        '--stale-threshold',
+        type=int,
+        help='Filter out devices not seen in X days'
     )
 
     args = parser.parse_args()
@@ -559,17 +1026,65 @@ def main():
         print_warning("No CIDs selected")
         sys.exit(0)
 
-    # Prepare output file
+    # Create device filters
+    filters = None
+    if any([args.filter_platform, args.filter_status, args.filter_groups, args.stale_threshold]):
+        platforms = args.filter_platform.split(',') if args.filter_platform else None
+        statuses = args.filter_status.split(',') if args.filter_status else None
+        groups = args.filter_groups.split(',') if args.filter_groups else None
+
+        filters = DeviceFilters(
+            platforms=platforms,
+            statuses=statuses,
+            groups=groups,
+            stale_days=args.stale_threshold
+        )
+
+        print()
+        print_info("Active filters:")
+        if platforms:
+            print(f"  • Platforms: {', '.join(platforms)}")
+        if statuses:
+            print(f"  • Statuses: {', '.join(statuses)}")
+        if groups:
+            print(f"  • Groups: {', '.join(groups)}")
+        if args.stale_threshold:
+            print(f"  • Exclude devices not seen in {args.stale_threshold} days")
+
+    # Prepare output files
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_file = args.output or f"devices_export_{timestamp}.csv"
+
+    if args.output:
+        # Use provided output path
+        base_output = args.output
+        if base_output.endswith('.csv'):
+            csv_output = base_output
+            excel_output = base_output.replace('.csv', '.xlsx')
+        elif base_output.endswith('.xlsx'):
+            excel_output = base_output
+            csv_output = base_output.replace('.xlsx', '.csv')
+        else:
+            csv_output = f"{base_output}.csv"
+            excel_output = f"{base_output}.xlsx"
+    else:
+        # Default filenames
+        csv_output = f"devices_export_{timestamp}.csv"
+        excel_output = f"devices_export_{timestamp}.xlsx"
 
     # Ensure output directory exists
-    os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else '.', exist_ok=True)
+    for output in [csv_output, excel_output]:
+        output_dir = os.path.dirname(output)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
 
     print_header("EXPORTING DEVICE DATA", width=80)
 
     all_rows = []
+    all_data = {}  # For Excel export by CID
+    all_stats = {}
+    all_anomalies = {}
     total_devices = 0
+    total_filtered = 0
 
     for idx, cid_info in enumerate(selected_cids, 1):
         print()
@@ -661,19 +1176,38 @@ def main():
 
         # Convert to CSV rows
         print_info("  Converting to CSV format...")
-        rows = export_cid_to_csv(cid_info, devices, host_groups, policies)
+        rows = export_cid_to_csv(cid_info, devices, host_groups, policies, filters)
         all_rows.extend(rows)
-        total_devices += len(rows)
-        print_success(f"  Processed {len(rows)} device(s)")
+        all_data[cid_info['name']] = rows
+        total_devices += len(devices)
+        total_filtered += len(rows)
+        print_success(f"  Processed {len(rows)} device(s) (filtered from {len(devices)})")
+
+        # Calculate statistics
+        print_info("  Calculating statistics...")
+        stats = calculate_statistics(rows, host_groups, policies)
+        all_stats[cid_info['name']] = stats
+
+        # Detect anomalies
+        print_info("  Detecting anomalies...")
+        anomalies = detect_anomalies(rows, policies)
+        all_anomalies[cid_info['name']] = anomalies
+
+        anomaly_count = sum(len(devices) for devices in anomalies.values())
+        if anomaly_count > 0:
+            print_warning(f"  Found {anomaly_count} anomaly/anomalies")
+        else:
+            print_success(f"  No anomalies detected")
 
         # Progress
         print_progress(idx, len(selected_cids), prefix="Overall progress", suffix=f"({cid_info['name'][:30]})")
 
-    # Write CSV
+    # Write output files
     print()
-    print_info(f"Writing CSV file: {output_file}")
 
-    if all_rows:
+    if not all_rows:
+        print_warning("No data to export (all devices filtered out)")
+    else:
         fieldnames = [
             'CID Name', 'CID', 'CID Type', 'Device ID', 'Hostname', 'OS Version', 'Platform',
             'Last Seen', 'Status', 'Host Groups', 'Prevention Policy', 'Prevention Status',
@@ -681,23 +1215,74 @@ def main():
             'Agent Version', 'Service Provider', 'Service Provider Account ID'
         ]
 
-        with open(output_file, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(all_rows)
+        # CSV export
+        if args.format in ['csv', 'both']:
+            print_info(f"Writing CSV file: {csv_output}")
+            with open(csv_output, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(all_rows)
+            print_success(f"CSV file created successfully!")
 
-        print_success(f"CSV file created successfully!")
-    else:
-        print_warning("No data to export")
+        # Excel export
+        if args.format in ['excel', 'both']:
+            print_info(f"Writing Excel file: {excel_output}")
+            export_to_excel(excel_output, all_data, all_stats, all_anomalies)
+
+    # Print overall statistics
+    print()
+    if total_filtered > 0:
+        # Merge stats from all CIDs
+        merged_stats = {
+            'total_devices': total_filtered,
+            'by_platform': Counter(),
+            'by_status': Counter(),
+            'by_host_group': Counter(),
+            'by_prevention_policy': Counter(),
+            'by_response_policy': Counter(),
+            'by_sensor_policy': Counter(),
+        }
+
+        for stats in all_stats.values():
+            for key in ['by_platform', 'by_status', 'by_host_group', 'by_prevention_policy',
+                       'by_response_policy', 'by_sensor_policy']:
+                merged_stats[key].update(stats[key])
+
+        # Merge anomalies from all CIDs
+        merged_anomalies = {
+            'no_prevention_policy': [],
+            'no_response_policy': [],
+            'no_sensor_policy': [],
+            'policy_not_applied': [],
+            'no_host_group': [],
+            'stale_devices': [],
+        }
+
+        for anomalies in all_anomalies.values():
+            for key in merged_anomalies.keys():
+                merged_anomalies[key].extend(anomalies.get(key, []))
+
+        print_statistics(merged_stats, merged_anomalies)
 
     # Summary
+    summary_data = {
+        'CIDs processed': len(selected_cids),
+        'Total devices queried': total_devices,
+        'Devices exported': total_filtered,
+    }
+
+    if filters:
+        summary_data['Devices filtered out'] = total_devices - total_filtered
+
+    if args.format in ['csv', 'both']:
+        summary_data['CSV output'] = csv_output
+
+    if args.format in ['excel', 'both']:
+        summary_data['Excel output'] = excel_output
+
     print_summary_box(
         "EXPORT COMPLETE",
-        {
-            'CIDs processed': len(selected_cids),
-            'Total devices exported': total_devices,
-            'Output file': output_file,
-        },
+        summary_data,
         width=80
     )
 

@@ -1,6 +1,29 @@
-# Devices & Policies Exporter
+# Devices & Policies Exporter - Enhanced Edition
 
-Exports comprehensive device, host group, and policy information to CSV format for CrowdStrike Falcon Flight Control environments.
+Exports comprehensive device, host group, and policy information to CSV/Excel for CrowdStrike Falcon Flight Control environments.
+
+## 🆕 What's New in v2.0
+
+### 1. **Multi-Format Export** 📊
+- Excel export with formatted sheets (one per CID)
+- Color-coded policy status (Applied=Green, Assigned=Yellow, None=Red)
+- Auto-filters and freeze panes
+- Separate "Anomalies" sheet for issues
+
+### 2. **Device Filtering** 🔍
+- Filter by platform (Windows, Linux, Mac)
+- Filter by status (normal, containment, etc.)
+- Filter by host groups (partial match)
+- Exclude stale devices (not seen in X days)
+
+### 3. **Statistics & Anomaly Detection** ⚠️
+- Platform and status distribution
+- Top 10 host groups
+- Automatic detection of:
+  - Devices without policies
+  - Policies not applied (assigned but pending)
+  - Devices without host groups
+  - Stale devices (>30 days)
 
 ## Overview
 
@@ -8,7 +31,9 @@ This script retrieves all devices from selected CIDs (Parent and/or Children) an
 
 ## Features
 
-- ✨ **CSV Export** - Clean, structured data export
+- ✨ **Multi-format export** - CSV and Excel with formatting
+- ✨ **Device filtering** - Platform, status, groups, stale devices
+- ✨ **Statistics & anomalies** - Automatic detection and reporting
 - ✨ **Interactive CID selection** - Choose which CIDs to export
 - ✨ **Policy differentiation** - Distinguishes Applied vs Assigned vs None
 - ✨ **Flight Control support** - Handles parent and child CIDs
@@ -21,6 +46,8 @@ This script retrieves all devices from selected CIDs (Parent and/or Children) an
 
 - Python 3.9 or higher
 - FalconPy SDK 1.6.0 or higher
+- **openpyxl 3.1.0 or higher** (for Excel export)
+- colorama 0.4.6 or higher (for colored output)
 - CrowdStrike Falcon API credentials with the following scopes:
   - **Hosts: Read**
   - **Host Groups: Read**
@@ -28,6 +55,11 @@ This script retrieves all devices from selected CIDs (Parent and/or Children) an
   - **Response Policies: Read**
   - **Sensor Update Policies: Read**
 - Flight Control environment (optional - works with single CID too)
+
+Install all requirements:
+```bash
+pip install -r ../../requirements.txt
+```
 
 ## Usage
 
@@ -58,10 +90,61 @@ python export_devices_policies.py --config ../config/credentials.json --non-inte
 Specify a custom output filename:
 
 ```bash
-python export_devices_policies.py --config ../config/credentials.json --output my_export.csv
+# Excel format (default)
+python export_devices_policies.py --config ../config/credentials.json --output my_export.xlsx
+
+# CSV format
+python export_devices_policies.py --config ../config/credentials.json --output my_export.csv --format csv
+
+# Both formats
+python export_devices_policies.py --config ../config/credentials.json --output my_export --format both
 ```
 
-Default filename: `devices_export_TIMESTAMP.csv`
+Default filename: `devices_export_TIMESTAMP.xlsx` (or `.csv` if `--format csv`)
+
+### Device Filtering (NEW)
+
+Filter which devices to export:
+
+```bash
+# Export only Windows devices
+python export_devices_policies.py --config ../config/credentials.json --filter-platform Windows
+
+# Export only multiple platforms
+python export_devices_policies.py --config ../config/credentials.json --filter-platform "Windows,Linux"
+
+# Export only devices with specific status
+python export_devices_policies.py --config ../config/credentials.json --filter-status normal
+
+# Export only devices in specific groups (partial match)
+python export_devices_policies.py --config ../config/credentials.json --filter-groups "Production,Critical"
+
+# Exclude stale devices (not seen in 30 days)
+python export_devices_policies.py --config ../config/credentials.json --stale-threshold 30
+
+# Combine multiple filters
+python export_devices_policies.py \
+  --config ../config/credentials.json \
+  --filter-platform Windows \
+  --filter-status normal \
+  --stale-threshold 90 \
+  --format excel
+```
+
+### Format Options (NEW)
+
+Choose export format:
+
+```bash
+# Excel only (default, recommended)
+python export_devices_policies.py --config ../config/credentials.json --format excel
+
+# CSV only
+python export_devices_policies.py --config ../config/credentials.json --format csv
+
+# Both formats
+python export_devices_policies.py --config ../config/credentials.json --format both
+```
 
 ### Credential Methods
 
@@ -84,6 +167,65 @@ python export_devices_policies.py --client-id "YOUR_ID" --client-secret "YOUR_SE
 ```
 
 See [../CREDENTIALS_GUIDE.md](../CREDENTIALS_GUIDE.md) for detailed credential setup instructions.
+
+## Excel Output Format (NEW)
+
+When exporting to Excel (`--format excel` or `--format both`), the workbook contains:
+
+### Summary Sheet
+- Overview of all CIDs with device counts
+- Anomaly counts per CID
+- Color-coded status indicators
+
+### Device Sheets (one per CID)
+- All device data with auto-filters
+- Freeze panes on header row
+- Color coding:
+  - 🟢 Green: Policy Applied
+  - 🟡 Yellow: Policy Assigned (pending)
+  - 🔴 Red: No Policy
+- Auto-sized columns
+
+### Anomalies Sheet (if issues found)
+- List of all detected anomalies
+- Organized by CID and issue type
+- Easy identification of configuration problems
+
+## Statistics & Anomaly Detection (NEW)
+
+The script automatically calculates and displays:
+
+### Statistics Displayed
+```
+STATISTICS & ANOMALIES
+================================================================================
+
+Total Devices: 412
+
+Platform Distribution:
+  Windows              [████████████████████████████████████████░░] 358 (86.9%)
+  Linux                [██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]  47 (11.4%)
+  Mac                  [█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]   7 ( 1.7%)
+
+Status Distribution:
+  normal                389 (94.4%)
+  offline                21 ( 5.1%)
+  containment             2 ( 0.5%)
+
+Top 10 Host Groups:
+  Production Servers                                42
+  Development Workstations                          38
+  Database Cluster                                  25
+  ...
+```
+
+### Anomalies Detected
+- **No Prevention Policy**: Devices without prevention policy assigned
+- **No Response Policy**: Devices without response policy assigned
+- **No Sensor Update Policy**: Devices without sensor update policy assigned
+- **Policy Not Applied**: Devices with policies assigned but not yet applied
+- **No Host Group**: Devices not in any host group
+- **Stale Devices**: Devices not seen in >30 days
 
 ## CSV Output Format
 
