@@ -2,6 +2,16 @@
 
 This directory contains all project documentation organized by category.
 
+---
+
+## ⚠️ Important Notice
+
+**This toolkit is a personal contribution and NOT officially supported by CrowdStrike.**
+
+Please see the [main README](../README.md) for full disclaimer and legal notice.
+
+---
+
 ## 📚 General Documentation
 
 - **[INSTALLATION.md](INSTALLATION.md)** - Complete installation and setup guide

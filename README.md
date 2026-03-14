@@ -2,6 +2,24 @@
 
 Python automation toolkit for CrowdStrike Falcon FlightControl environments using the FalconPy SDK.
 
+---
+
+## ⚠️ Disclaimer
+
+> **IMPORTANT:** This is a **personal contribution** and is **NOT officially supported by CrowdStrike**.
+>
+> - ❌ **No official support** - These scripts are provided as-is
+> - ❌ **Not endorsed** - CrowdStrike does not endorse or maintain this toolkit
+> - ✅ **Community-driven** - Personal project for automation purposes
+> - ✅ **Use at your own risk** - Test thoroughly in non-production environments first
+>
+> For official CrowdStrike tools and support, please refer to:
+> - **Official API Documentation:** https://falcon.crowdstrike.com/documentation
+> - **Official FalconPy SDK:** https://github.com/CrowdStrike/falconpy
+> - **CrowdStrike Support:** Contact your CrowdStrike representative
+
+---
+
 ## Overview
 
 This toolkit provides enterprise-grade scripts to automate configuration management and replication across Parent and Child CIDs in CrowdStrike Falcon FlightControl environments. All scripts feature interactive modes, visual progress indicators, and comprehensive error handling.
@@ -247,3 +265,14 @@ python script_analyze_roles/analyze_roles.py
 ## License
 
 This project is provided as-is for automation purposes.
+
+## ⚠️ Legal Notice
+
+**This toolkit is a personal contribution and is not affiliated with, endorsed by, or supported by CrowdStrike, Inc.**
+
+- The scripts use the official CrowdStrike Falcon API via the FalconPy SDK
+- All trademarks and product names are property of their respective owners
+- No warranty is provided - use at your own risk
+- Always test in non-production environments before deploying
+
+**For official support, contact CrowdStrike directly through your support channels.**
