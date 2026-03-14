@@ -122,16 +122,30 @@ rule_config = {
 ### 4. Network Locations - `replicate_network_location()` method
 
 **Added:**
-- Display message during replication for consistency
-- Network Locations typically don't have an `enabled` field in the API
+- Extract `enabled` status from source: `location_enabled = location_config.get('enabled', True)`
+- Field is automatically preserved via dict comprehension (copies all fields except metadata)
+- **Display status during replication:**
+  ```
+  Replicating: Location-Name [✓ Enabled]
+  Replicating: Location-Name [⊗ Disabled]
+  ```
 
 **Code:**
 ```python
-original_name = location_config.get('name')
+# Remove fields that shouldn't be in creation request
+location_config = {k: v for k, v in location_data.items()
+                  if k not in ['id', 'created_by', 'created_on', 'modified_by', 'modified_on', 'cid']}
+# ↑ This automatically includes 'enabled' field if present
 
-# Display information
-print_info(f"  Replicating: {original_name}")
+original_name = location_config.get('name')
+location_enabled = location_config.get('enabled', True)
+
+# Display status information
+status_indicator = "✓ Enabled" if location_enabled else "⊗ Disabled"
+print_info(f"  Replicating: {original_name} [{status_indicator}]")
 ```
+
+**Note:** The dict comprehension approach ensures all fields (including `enabled`) are copied automatically, while only excluding metadata fields that shouldn't be in creation requests.
 
 ---
 
@@ -155,8 +169,11 @@ Replicating to: Dev-Child-001
 ℹ   Required Network Locations: 3
 
 ℹ Replicating 3 Network Locations...
-  Replicating: Corporate-Office-Network
+  Replicating: Corporate-Office-Network [✓ Enabled]
 ✓ Created Network Location: Corporate-Office-Network
+
+  Replicating: Test-Network [⊗ Disabled]
+✓ Created Network Location: Test-Network
 
 ℹ Replicating 5 Rule Groups...
   Replicating: Security-Rules-Baseline [✓ Enabled] - 10 rules (2 disabled)
@@ -221,6 +238,8 @@ Replicating to: Dev-Child-001
 | Replicate disabled Rule Group | ✅ Child Rule Group is disabled |
 | Replicate Rule Group with mixed rules (3 enabled, 2 disabled) | ✅ Child has same 3 enabled, 2 disabled |
 | Replicate disabled Rule Group with all disabled rules | ✅ Child Rule Group and all rules disabled |
+| Replicate enabled Network Location | ✅ Child Network Location is enabled |
+| Replicate disabled Network Location | ✅ Child Network Location is disabled |
 
 ---
 

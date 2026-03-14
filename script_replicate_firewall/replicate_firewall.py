@@ -605,9 +605,11 @@ class FirewallReplicator:
                           if k not in ['id', 'created_by', 'created_on', 'modified_by', 'modified_on', 'cid']}
 
         original_name = location_config.get('name')
+        location_enabled = location_config.get('enabled', True)
 
-        # Display information
-        print_info(f"  Replicating: {original_name}")
+        # Display status information
+        status_indicator = "✓ Enabled" if location_enabled else "⊗ Disabled"
+        print_info(f"  Replicating: {original_name} [{status_indicator}]")
 
         try:
             response = self.falcon_fw.create_network_locations(body=location_config)
