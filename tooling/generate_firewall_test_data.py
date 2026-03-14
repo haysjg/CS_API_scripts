@@ -192,12 +192,76 @@ class FirewallTestDataGenerator:
         self.created_locations = created_ids
         return created_ids
 
-    def generate_rule_group(self, index: int, rule_ids: List[str] = None) -> Dict[str, Any]:
-        """Generate a rule group configuration
+    def generate_rule(self, index: int) -> Dict[str, Any]:
+        """Generate a firewall rule configuration
 
         Args:
             index: Index number for unique naming
-            rule_ids: Optional list of rule IDs to include
+
+        Returns:
+            Rule configuration dict
+        """
+        service = random.choice(self.SERVICE_NAMES)
+        action = random.choice(self.ACTIONS)
+        direction = random.choice(self.DIRECTIONS)
+        protocol = random.choice([6, 17])  # TCP=6, UDP=17
+
+        # Select a port based on service or random
+        if service in ["HTTP"]:
+            port = 80
+        elif service in ["HTTPS"]:
+            port = 443
+        elif service in ["SSH"]:
+            port = 22
+        elif service in ["RDP"]:
+            port = 3389
+        elif service in ["SMB"]:
+            port = 445
+        else:
+            port = random.choice(self.COMMON_PORTS)
+
+        name = f"Test-{action}-{service}-{index:04d}"
+
+        rule = {
+            "name": name,
+            "description": f"Test rule {index}: {action} {service} traffic",
+            "enabled": True,
+            "action": action,
+            "direction": direction,
+            "protocol": str(protocol),
+            "address_family": "IP4",
+            "log": random.choice([True, False]),
+            "temp_id": f"temp-rule-{index}"
+        }
+
+        # Add port if it's TCP/UDP
+        if protocol in [6, 17]:
+            # Use port range or single port based on random choice
+            if random.choice([True, False]) and port < 65530:
+                # Port range
+                rule["remote_port"] = [
+                    {
+                        "start": port,
+                        "end": port + random.randint(1, 10)
+                    }
+                ]
+            else:
+                # Single port - don't include 'end' field
+                rule["remote_port"] = [
+                    {
+                        "start": port,
+                        "end": port  # Try with same value
+                    }
+                ]
+
+        return rule
+
+    def generate_rule_group(self, index: int, num_rules: int = 5) -> Dict[str, Any]:
+        """Generate a rule group configuration with rules
+
+        Args:
+            index: Index number for unique naming
+            num_rules: Number of rules to include in the group
 
         Returns:
             Rule group configuration dict
@@ -209,46 +273,79 @@ class FirewallTestDataGenerator:
 
         name = f"Test-RuleGroup-{category}-{index:04d}"
 
-        # Platform IDs: 0=Windows, 1=Mac, 3=Linux
-        platform_id = random.choice(["0", "1", "3"])
+        # Platform labels: windows, mac, linux (lowercase)
+        platform_label = random.choice(["windows", "mac", "linux"])
+
+        # Generate rules for this group
+        rules = [self.generate_rule(i + (index * 100)) for i in range(num_rules)]
 
         config = {
             "name": name,
             "description": f"Test rule group {index} for {category} policies",
             "enabled": True,
-            "platform": platform_id
+            "platform": platform_label,
+            "rules": rules
         }
-
-        # Add rules if provided (as array of rule objects, not just IDs)
-        if rule_ids:
-            # For now, just note that rules would go here
-            # The actual rule format needs to be discovered
-            pass
 
         return config
 
-    def create_rule_groups(self, count: int, rule_ids: List[str] = None) -> List[str]:
+    def create_rule_groups(self, count: int, rules_per_group: int = 0) -> List[str]:
         """Create multiple rule groups
 
         Args:
             count: Number of rule groups to create
-            rule_ids: Optional list of rule IDs to include in groups
+            rules_per_group: Number of rules per group (currently set to 0 - empty groups)
 
         Returns:
             List of created rule group IDs
         """
-        print_section(f"Creating {count} Rule Groups")
-        print_warning("Rule Group creation via API is currently not working")
-        print_warning("Platform parameter validation fails even with correct values")
-        print_info("Workaround: Create Rule Groups manually in Falcon Console:")
-        print_info("  1. Endpoint Security → Firewall Management → Rule Groups")
-        print_info("  2. Click 'Create Group'")
-        print_info("  3. Choose platform (Windows/Linux/Mac)")
-        print_info("  4. Add rules and save")
-        print()
-        print_info(f"Skipping {count} Rule Group creation(s)")
+        print_section(f"Creating {count} Rule Groups (empty - rules TBD)")
+        print_info("Note: Creating empty rule groups. Rules can be added later via console.")
 
         created_ids = []
+
+        for i in range(count):
+            try:
+                # Generate config without rules for now
+                category = random.choice([
+                    "Security", "Compliance", "Application", "Network",
+                    "Infrastructure", "Database", "WebServer", "Custom"
+                ])
+                name = f"Test-RuleGroup-{category}-{i+1:04d}"
+                platform_label = random.choice(["windows", "mac", "linux"])
+
+                rg_config = {
+                    "name": name,
+                    "description": f"Test rule group {i+1} for {category} policies",
+                    "enabled": True,
+                    "platform": platform_label,
+                    "rules": []  # Empty for now
+                }
+
+                response = self.falcon_fw.create_rule_group(
+                    body=rg_config
+                )
+
+                if response['status_code'] in [200, 201]:
+                    # Extract ID from response - it's a list of strings
+                    resources = response['body'].get('resources', [])
+                    if resources:
+                        rg_id = resources[0] if isinstance(resources[0], str) else resources[0].get('id')
+                        created_ids.append(rg_id)
+
+                    print_progress(i + 1, count, prefix=f"Creating rule groups", suffix=f"({i+1}/{count})")
+                else:
+                    print_error(f"Failed to create rule group {i+1}: {response['body'].get('errors')}")
+
+                # Rate limiting
+                time.sleep(0.1)
+
+            except Exception as e:
+                print_error(f"Exception creating rule group {i+1}: {e}")
+
+        print()
+        print_success(f"Created {len(created_ids)} Rule Group(s)")
+        self.created_rule_groups = created_ids
         return created_ids
 
     def generate_placeholder_data_summary(self,
@@ -456,22 +553,14 @@ WARNING: This script creates many resources. Use only in test environments!
         location_ids = generator.create_network_locations(locations)
         print()
 
-        # Step 2: Rules (placeholder - API method needs to be determined)
-        print_section(f"Creating {rules} Firewall Rules")
-        print_warning("Rule creation not yet implemented - needs API method discovery")
-        print_info("You can create rules manually in Falcon Console:")
-        print_info("  Endpoint Security → Firewall Management → Rules → Add Rule")
-        print()
-        rule_ids = []  # Placeholder
-
-        # Step 3: Rule Groups
-        rg_ids = generator.create_rule_groups(rule_groups, rule_ids if rule_ids else None)
+        # Step 2: Rule Groups (empty for now)
+        rg_ids = generator.create_rule_groups(rule_groups)
         print()
 
-        # Step 4: Policies (placeholder - API method needs to be determined)
+        # Step 3: Policies (using FirewallPolicies API)
         print_section(f"Creating {policies} Policy Containers")
-        print_warning("Policy creation not yet implemented - needs API method discovery")
-        print_info("You can create policies manually in Falcon Console:")
+        print_warning("Policy creation coming next...")
+        print_info("For now, create policies manually in Falcon Console:")
         print_info("  Endpoint Security → Firewall Management → Policies → Create Policy")
         print()
 
@@ -479,13 +568,14 @@ WARNING: This script creates many resources. Use only in test environments!
         print_section("GENERATION COMPLETE")
         print_success(f"Successfully created:")
         print_info(f"  • {len(location_ids)} Network Locations")
-        print_info(f"  • {len(rg_ids)} Rule Groups")
-        print_info(f"  • 0 Rules (manual creation required)")
+        print_info(f"  • {len(rg_ids)} Rule Groups (empty - ready for rules)")
         print_info(f"  • 0 Policies (manual creation required)")
         print()
 
-        print_warning("IMPORTANT: To test the replication script, you should manually create")
-        print_warning("           at least one Policy and assign Rule Groups to it.")
+        print_warning("NEXT STEPS:")
+        print_info("  1. (Optional) Add rules to Rule Groups via Falcon Console")
+        print_info("  2. Create Policies and assign Rule Groups")
+        print_info("  3. Test replication script")
 
     except KeyboardInterrupt:
         print()
