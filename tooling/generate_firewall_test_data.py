@@ -92,7 +92,7 @@ class FirewallTestDataGenerator:
     # Rule generation
     PROTOCOLS = ["TCP", "UDP", "ICMP", "ANY"]
     DIRECTIONS = ["IN", "OUT", "BOTH"]
-    ACTIONS = ["ALLOW", "BLOCK"]
+    ACTIONS = ["ALLOW", "DENY"]  # API accepts ALLOW or DENY, not BLOCK
 
     COMMON_PORTS = [
         20, 21, 22, 23, 25, 53, 80, 110, 143, 443,
@@ -245,19 +245,19 @@ class FirewallTestDataGenerator:
         if protocol in [6, 17]:
             # Use port range or single port based on random choice
             if random.choice([True, False]) and port < 65530:
-                # Port range
+                # Port range (start different from end)
+                end_port = port + random.randint(1, 10)
                 rule["remote_port"] = [
                     {
                         "start": port,
-                        "end": port + random.randint(1, 10)
+                        "end": end_port
                     }
                 ]
             else:
-                # Single port - don't include 'end' field
+                # Single port - only include start field
                 rule["remote_port"] = [
                     {
-                        "start": port,
-                        "end": port  # Try with same value
+                        "start": port
                     }
                 ]
 
@@ -296,25 +296,24 @@ class FirewallTestDataGenerator:
 
         return config
 
-    def create_rule_groups(self, count: int, rules_per_group: int = 0) -> List[str]:
+    def create_rule_groups(self, count: int, rules_per_group: int = 3) -> List[str]:
         """Create multiple rule groups
 
         Args:
             count: Number of rule groups to create
-            rules_per_group: Number of rules per group (currently set to 0 - empty groups)
+            rules_per_group: Number of rules per group (default: 3)
 
         Returns:
             List of created rule group IDs
         """
-        print_section(f"Creating {count} Rule Groups (empty - rules TBD)")
-        print_info("Note: Creating empty rule groups. Rules can be added later via console.")
+        print_section(f"Creating {count} Rule Groups with {rules_per_group} rules each")
 
         created_ids = []
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
         for i in range(count):
             try:
-                # Generate config without rules for now
+                # Generate config with rules
                 category = random.choice([
                     "Security", "Compliance", "Application", "Network",
                     "Infrastructure", "Database", "WebServer", "Custom"
@@ -322,12 +321,19 @@ class FirewallTestDataGenerator:
                 name = f"Test-RuleGroup-{category}-{timestamp}-{i+1:03d}"
                 platform_label = random.choice(["windows", "mac", "linux"])
 
+                # Generate rules for this group
+                rules = []
+                if rules_per_group > 0:
+                    for r in range(rules_per_group):
+                        rule = self.generate_rule(i * rules_per_group + r + 1)
+                        rules.append(rule)
+
                 rg_config = {
                     "name": name,
-                    "description": f"Test rule group {i+1} for {category} policies",
+                    "description": f"Test rule group {i+1} for {category} policies with {rules_per_group} rules",
                     "enabled": True,
                     "platform": platform_label,
-                    "rules": []  # Empty for now
+                    "rules": rules
                 }
 
                 response = self.falcon_fw.create_rule_group(

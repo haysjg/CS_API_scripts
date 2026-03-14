@@ -10,7 +10,8 @@ This directory contains utility scripts for development, testing, and maintenanc
 
 **Creates:**
 - Network Locations (Contexts) - IP ranges, DNS, DHCP configs ✅
-- Rule Groups - Collections of firewall rules ✅
+- Firewall Rules - Individual firewall rules (TCP/UDP/ICMP with ports) ✅
+- Rule Groups - Collections of firewall rules (3 rules per group by default) ✅
 - Firewall Policies - Policy containers with assigned rule groups ✅
 
 **Usage:**
@@ -57,11 +58,13 @@ Estimated Time:                   ~0.8 minutes
 
 **✅ Current Status:**
 - Network Location creation: **Fully functional**
-- Rule Group creation: **Fully functional** (creates empty groups)
+- Rule creation: **Fully functional** (embedded in rule groups)
+- Rule Group creation: **Fully functional** (creates 3 rules per group by default)
 - Policy creation: **Fully functional** (automatically assigns rule groups)
 
 **⚠️ NOTES:**
-- Rule groups are created empty (rules can be added via Falcon Console)
+- Each rule group contains 3 firewall rules by default
+- Rules include random TCP/UDP ports, directions (IN/OUT/BOTH), and actions (ALLOW/DENY)
 - Policies are automatically created with assigned rule groups
 - Requires API credentials with Firewall Management: Write scope
 

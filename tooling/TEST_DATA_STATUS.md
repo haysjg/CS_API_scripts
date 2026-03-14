@@ -77,12 +77,12 @@
 ---
 
 ### Rules
-**Status:** 🔧 Partially implemented
+**Status:** ✅ Fully functional
 
 **Discovery:**
 - Rules are embedded within Rule Groups, not created standalone
-- Rule Groups can be created empty and rules added later
-- Rules format validated but not yet generating programmatically
+- Rules are created as part of rule group creation
+- Each rule group contains 3 rules by default (configurable)
 
 **Format (embedded in rule group):**
 ```python
@@ -90,7 +90,7 @@
     "name": "string",
     "description": "string",
     "enabled": true,
-    "action": "ALLOW"|"BLOCK",
+    "action": "ALLOW"|"DENY",  # API accepts ALLOW or DENY (not BLOCK!)
     "direction": "IN"|"OUT"|"BOTH",
     "protocol": "6"|"17",  # TCP=6, UDP=17
     "address_family": "IP4"|"IP6",
@@ -98,14 +98,20 @@
     "remote_port": [
         {
             "start": 80,
-            "end": 80  # Must be >= start
+            "end": 90  # Optional - omit for single port
         }
     ],
-    "temp_id": "string"
+    "temp_id": "string"  # Required for creation
 }
 ```
 
-**Status:** Not yet generating rules in rule groups (created empty)
+**Key Discoveries:**
+- ✅ Action must be "ALLOW" or "DENY" (NOT "BLOCK" as initially thought)
+- ✅ For single port: include only "start" field
+- ✅ For port range: include both "start" and "end" (must be different)
+- ✅ "temp_id" is required during creation
+
+**Current Count:** 18+ rules created (3 per rule group)
 
 ---
 
