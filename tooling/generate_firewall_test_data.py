@@ -63,12 +63,14 @@ class FirewallTestDataGenerator:
             base_url=base_url
         )
 
+        # Force token generation
+        token_result = self.auth.token()
+        if token_result.get('status_code') != 201:
+            raise Exception(f"Authentication failed: {token_result.get('body')}")
+
         # Initialize service classes with shared auth object
         self.falcon_fw = FirewallManagement(auth_object=self.auth)
         self.falcon_fp = FirewallPolicies(auth_object=self.auth)
-
-        if not self.auth.token_status:
-            raise Exception("Authentication failed. Please check your credentials.")
 
         print_success("Authentication successful!")
 
@@ -597,12 +599,24 @@ WARNING: This script creates many resources. Use only in test environments!
 
     # Get credentials
     try:
+        # Set default config path if not provided
+        config_path = args.config or '../../config/credentials.json'
+
         client_id, client_secret, base_url, source = get_credentials_smart(
-            config_path=args.config,
+            config_path=config_path,
             client_id=args.client_id,
             client_secret=args.client_secret,
             base_url=args.base_url
         )
+
+        # Check if credentials were actually loaded
+        if not client_id or not client_secret:
+            print_error("No credentials found. Please provide:")
+            print_error("  1. --config <path> to credentials file, OR")
+            print_error("  2. --client-id and --client-secret arguments, OR")
+            print_error("  3. FALCON_CLIENT_ID and FALCON_CLIENT_SECRET environment variables")
+            sys.exit(1)
+
     except Exception as e:
         print(f"Failed to load credentials: {e}")
         sys.exit(1)
