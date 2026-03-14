@@ -118,26 +118,34 @@ class FirewallTestDataGenerator:
         return {
             "name": name,
             "description": f"Test network location {index} - {prefix} {suffix}",
+            "enabled": True,
             "connection_types": {
                 "wired": True,
-                "wireless": random.choice([True, False])
+                "wireless": {
+                    "enabled": random.choice([True, False]),
+                    "require_encryption": True,
+                    "ssids": [f"TestSSID-{index}"]
+                }
             },
-            "default_gateway": f"{network.rsplit('.', 1)[0]}.1",
+            "default_gateways": [f"{network.rsplit('.', 1)[0]}.1"],
             "dhcp_servers": [f"{network.rsplit('.', 1)[0]}.{random.randint(2, 10)}"],
-            "dns_resolution_targets": {
-                "targets": [
-                    f"server{i}.test{index}.local" for i in range(1, random.randint(2, 5))
-                ]
-            },
             "dns_servers": [
                 f"{network.rsplit('.', 1)[0]}.{random.randint(2, 10)}",
                 "8.8.8.8"
             ],
-            "enabled": True,
             "host_addresses": [f"{network}/{cidr}"],
-            "https_reachable_hosts": [
-                f"https://service{i}.test{index}.com" for i in range(1, random.randint(2, 4))
-            ],
+            "https_reachable_hosts": {
+                "hostnames": [f"service{i}.test{index}.com" for i in range(1, random.randint(2, 4))]
+            },
+            "dns_resolution_targets": {
+                "targets": [
+                    {
+                        "hostname": f"server{i}.test{index}.local",
+                        "ip_match": [f"{network.rsplit('.', 1)[0]}.{10+i}"]
+                    }
+                    for i in range(1, random.randint(2, 4))
+                ]
+            },
             "icmp_request_targets": {
                 "targets": [f"{network.rsplit('.', 1)[0]}.{i}" for i in range(1, 4)]
             }
@@ -201,19 +209,21 @@ class FirewallTestDataGenerator:
 
         name = f"Test-RuleGroup-{category}-{index:04d}"
 
+        # Platform IDs: 0=Windows, 1=Mac, 3=Linux
+        platform_id = random.choice(["0", "1", "3"])
+
         config = {
             "name": name,
             "description": f"Test rule group {index} for {category} policies",
             "enabled": True,
-            "comment": f"Auto-generated test rule group {index}",
-            "platform": random.choice(["windows", "linux", "mac"])  # Required field
+            "platform": platform_id
         }
 
-        # Add rules if provided
+        # Add rules if provided (as array of rule objects, not just IDs)
         if rule_ids:
-            # Take random subset of rules (1-10 rules per group)
-            num_rules = min(random.randint(1, 10), len(rule_ids))
-            config["rule_ids"] = random.sample(rule_ids, num_rules)
+            # For now, just note that rules would go here
+            # The actual rule format needs to be discovered
+            pass
 
         return config
 
@@ -228,34 +238,17 @@ class FirewallTestDataGenerator:
             List of created rule group IDs
         """
         print_section(f"Creating {count} Rule Groups")
+        print_warning("Rule Group creation via API is currently not working")
+        print_warning("Platform parameter validation fails even with correct values")
+        print_info("Workaround: Create Rule Groups manually in Falcon Console:")
+        print_info("  1. Endpoint Security → Firewall Management → Rule Groups")
+        print_info("  2. Click 'Create Group'")
+        print_info("  3. Choose platform (Windows/Linux/Mac)")
+        print_info("  4. Add rules and save")
+        print()
+        print_info(f"Skipping {count} Rule Group creation(s)")
 
         created_ids = []
-
-        for i in range(count):
-            try:
-                rg_config = self.generate_rule_group(i + 1, rule_ids)
-
-                response = self.falcon_fw.create_rule_group(
-                    body=rg_config
-                )
-
-                if response['status_code'] in [200, 201]:
-                    # Extract ID from response
-                    rg_id = response['body']['resources'][0]['id']
-                    created_ids.append(rg_id)
-                    print_progress(i + 1, count, prefix=f"Creating rule groups", suffix=f"({i+1}/{count})")
-                else:
-                    print_error(f"Failed to create rule group {i+1}: {response['body'].get('errors')}")
-
-                # Rate limiting
-                time.sleep(0.1)
-
-            except Exception as e:
-                print_error(f"Exception creating rule group {i+1}: {e}")
-
-        print()
-        print_success(f"Created {len(created_ids)} Rule Group(s)")
-        self.created_rule_groups = created_ids
         return created_ids
 
     def generate_placeholder_data_summary(self,
