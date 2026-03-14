@@ -1,0 +1,204 @@
+# Test Data Generation - Status Report
+
+## ✅ Successfully Implemented
+
+### Network Locations (Contexts)
+**Status:** ✅ Fully functional
+
+**API Format:**
+```python
+{
+    "name": "string",
+    "description": "string",
+    "enabled": true,
+    "connection_types": {
+        "wired": true,
+        "wireless": {
+            "enabled": true,
+            "require_encryption": true,
+            "ssids": ["string"]
+        }
+    },
+    "default_gateways": ["string"],
+    "dhcp_servers": ["string"],
+    "dns_servers": ["string"],
+    "host_addresses": ["string"],
+    "https_reachable_hosts": {
+        "hostnames": ["string"]
+    },
+    "dns_resolution_targets": {
+        "targets": [
+            {
+                "hostname": "string",
+                "ip_match": ["string"]
+            }
+        ]
+    },
+    "icmp_request_targets": {
+        "targets": ["string"]
+    }
+}
+```
+
+**Current Count:** 91 created
+
+---
+
+### Rule Groups
+**Status:** ✅ Fully functional
+
+**API Format:**
+```python
+{
+    "name": "string",
+    "description": "string",
+    "enabled": true,
+    "platform": "windows"|"mac"|"linux",  # MUST be lowercase
+    "rules": []  # Can be empty array
+}
+```
+
+**Platform Parameter - Critical Discovery:**
+- ✅ WORKS: `"windows"`, `"mac"`, `"linux"` (lowercase strings)
+- ❌ FAILS: `"0"`, `"1"`, `"3"` (numeric IDs as strings)
+- ❌ FAILS: `"Windows"`, `"Mac"`, `"Linux"` (capitalized)
+- ❌ FAILS: `0`, `1`, `3` (integers)
+
+**API Response Format:**
+```python
+{
+    "resources": ["rule_group_id_string"],  # Array of strings, not objects
+    "errors": []
+}
+```
+
+**Current Count:** 30+ created
+
+---
+
+### Rules
+**Status:** 🔧 Partially implemented
+
+**Discovery:**
+- Rules are embedded within Rule Groups, not created standalone
+- Rule Groups can be created empty and rules added later
+- Rules format validated but not yet generating programmatically
+
+**Format (embedded in rule group):**
+```python
+{
+    "name": "string",
+    "description": "string",
+    "enabled": true,
+    "action": "ALLOW"|"BLOCK",
+    "direction": "IN"|"OUT"|"BOTH",
+    "protocol": "6"|"17",  # TCP=6, UDP=17
+    "address_family": "IP4"|"IP6",
+    "log": true|false,
+    "remote_port": [
+        {
+            "start": 80,
+            "end": 80  # Must be >= start
+        }
+    ],
+    "temp_id": "string"
+}
+```
+
+**Status:** Not yet generating rules in rule groups (created empty)
+
+---
+
+### Policy Containers
+**Status:** 📋 Not yet implemented
+
+**API:** `FirewallPolicies.create_policies()`
+
+**Expected Format:**
+```python
+{
+    "resources": [
+        {
+            "name": "string",
+            "description": "string",
+            "platform_name": "Windows"|"Mac"|"Linux"  # Note: may use capitalized
+        }
+    ]
+}
+```
+
+**Note:** Different API (FirewallPolicies vs FirewallManagement)
+
+---
+
+## 📊 Test Environment Status
+
+### Current Test Data
+- **Network Locations:** 91
+- **Rule Groups:** 30+
+- **Rules:** 0 (rule groups are empty)
+- **Policies:** 0 (requires manual creation or API implementation)
+
+### Replication Script Detection
+✅ Script successfully detects:
+- 91 Network Locations
+- 30 Rule Groups
+- Parent CID + 4 Child CIDs
+
+---
+
+## 🔍 Key Learnings
+
+### Platform Parameter Mystery
+**Documentation says:** `platform_id` should be "0", "1", or "3"
+**Reality:** Only accepts "windows", "mac", or "linux" (lowercase)
+
+**Explanation:**
+- The `get_platforms()` API returns: `{id: "0", label: "windows"}`
+- **Creation APIs require the LABEL, not the ID**
+- This is inconsistent with typical API design but confirmed through testing
+
+### API Inconsistencies
+1. **FirewallManagement API** (rule groups): uses `platform: "windows"` (lowercase)
+2. **FirewallPolicies API** (policies): likely uses `platform_name: "Windows"` (capitalized)
+3. Different APIs have different conventions
+
+---
+
+## 🎯 Next Steps
+
+### Option 1: Complete Automation (Implement Policies)
+1. Implement `FirewallPolicies.create_policies()`
+2. Test platform_name format (capitalized vs lowercase)
+3. Link rule groups to policies
+4. Full end-to-end test data generation
+
+### Option 2: Manual Policy Creation
+1. User creates 1-2 policies via Falcon Console
+2. Assigns existing rule groups to policies
+3. Test replication script with complete data
+
+### Option 3: Proceed with Replication Implementation
+1. Use current test data (91 locations, 30 rule groups)
+2. Implement replication logic
+3. Add policy creation later
+
+---
+
+## 📝 Documentation Updates Needed
+
+### CrowdStrike Documentation Issues
+1. **Platform parameter:** Docs say use "0", "1", "3" but API requires "windows", "mac", "linux"
+2. **Response format:** Rule group creation returns array of string IDs, not array of objects
+3. **API names:** Inconsistent naming between FirewallManagement and FirewallPolicies
+
+### Our Documentation
+- ✅ README updated with working formats
+- ✅ Test generator documents actual API behavior
+- ✅ Comments in code explain platform parameter discovery
+
+---
+
+**Generated:** 2026-03-14
+**Author:** Claude Opus 4.6
+**Status:** 91 Network Locations + 30 Rule Groups successfully created
