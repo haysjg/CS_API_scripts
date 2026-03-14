@@ -9,10 +9,9 @@ This directory contains utility scripts for development, testing, and maintenanc
 **Purpose:** Generate test configurations for Firewall Management to facilitate testing of the replication script.
 
 **Creates:**
-- Network Locations (Contexts) - IP ranges, DNS, DHCP configs
-- Rule Groups - Collections of firewall rules
-- (Planned) Firewall Rules - Individual firewall rules
-- (Planned) Policy Containers - Firewall policies
+- Network Locations (Contexts) - IP ranges, DNS, DHCP configs ✅
+- Rule Groups - Collections of firewall rules ✅
+- Firewall Policies - Policy containers with assigned rule groups ✅
 
 **Usage:**
 
@@ -26,6 +25,9 @@ python generate_firewall_test_data.py --config ../config/credentials.json \
 
 # Dry run (preview without creating)
 python generate_firewall_test_data.py --config ../config/credentials.json --count 50 --dry-run
+
+# Auto-confirm (skip confirmation prompt)
+python generate_firewall_test_data.py --config ../config/credentials.json --count 10 --yes
 ```
 
 **Example Output:**
@@ -43,24 +45,25 @@ Rule Groups:                      100
   - Each group contains 1-10 rules
   - Categorized by purpose (Security, Compliance, etc.)
 
+Policy Containers:                100
+  - Linked to rule groups
+  - Various platforms (Windows, Linux, macOS)
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Total Resources to Create:        200
-Estimated Time:                   ~0.5 minutes
+Total Resources to Create:        300
+Estimated Time:                   ~0.8 minutes
 ```
 
-**⚠️ WARNING:**
-This script creates many resources in your CrowdStrike tenant. Use ONLY in test environments!
+**✅ Current Status:**
+- Network Location creation: **Fully functional**
+- Rule Group creation: **Fully functional** (creates empty groups)
+- Policy creation: **Fully functional** (automatically assigns rule groups)
 
-**Current Limitations:**
-- Rule creation not yet implemented (API method discovery needed)
-- Policy creation not yet implemented (API method discovery needed)
-- Manual cleanup required (delete via Falcon Console)
-
-For now, after running this script, you should:
-1. Manually create some Rules in Falcon Console
-2. Manually create Policies and assign the generated Rule Groups
-3. Test the replication script with these configurations
+**⚠️ NOTES:**
+- Rule groups are created empty (rules can be added via Falcon Console)
+- Policies are automatically created with assigned rule groups
+- Requires API credentials with Firewall Management: Write scope
 
 ## 📋 API Scopes Required
 

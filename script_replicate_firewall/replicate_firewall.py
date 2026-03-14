@@ -36,7 +36,7 @@ from datetime import datetime
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from falconpy import FirewallManagement, FlightControl
+from falconpy import OAuth2, FirewallManagement, FirewallPolicies, FlightControl
 from utils.auth import get_credentials_smart
 from utils.formatting import (
     print_header, print_section, print_info, print_success,
@@ -61,13 +61,19 @@ class FirewallReplicator:
 
         # Initialize API clients
         print_info("Authenticating to Falcon API...")
-        self.falcon_fw = FirewallManagement(
+
+        # Create shared OAuth2 object (recommended for multiple services)
+        self.auth = OAuth2(
             client_id=client_id,
             client_secret=client_secret,
             base_url=base_url
         )
 
-        if not self.falcon_fw.token_status:
+        # Initialize service classes with shared auth
+        self.falcon_fw = FirewallManagement(auth_object=self.auth)
+        self.falcon_fp = FirewallPolicies(auth_object=self.auth)
+
+        if not self.auth.token_status:
             raise Exception("Authentication failed. Please check your credentials.")
 
         self.falcon_fc = FlightControl(auth_object=self.falcon_fw.auth_object)
@@ -270,11 +276,11 @@ class FirewallReplicator:
         """
         print_info(f"  Extracting Policy Containers (Firewall Policies)...")
 
-        # First, query policy rule IDs
-        query_response = self.falcon_fw.query_policy_rules()
+        # Query policies using FirewallPolicies API
+        query_response = self.falcon_fp.query_policies()
 
         if query_response['status_code'] != 200:
-            print_error(f"Failed to query policy rules: {query_response['body'].get('errors')}")
+            print_error(f"Failed to query policies: {query_response['body'].get('errors')}")
             return {}
 
         policy_ids = query_response['body']['resources']
@@ -283,8 +289,8 @@ class FirewallReplicator:
             print_info(f"    No Policy Containers found")
             return {}
 
-        # Get policy container details
-        response = self.falcon_fw.get_policy_containers(ids=policy_ids)
+        # Get policy details
+        response = self.falcon_fp.get_policies(ids=policy_ids)
 
         if response['status_code'] != 200:
             print_error(f"Failed to get policy containers: {response['body'].get('errors')}")

@@ -21,6 +21,7 @@ import os
 import argparse
 import random
 import time
+from datetime import datetime
 from typing import Dict, List, Any
 
 # Fix Windows console encoding
@@ -34,7 +35,7 @@ if sys.platform == 'win32':
 # Add parent directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from falconpy import FirewallManagement
+from falconpy import OAuth2, FirewallManagement, FirewallPolicies
 from utils.auth import get_credentials_smart
 from utils.formatting import (
     print_header, print_section, print_info, print_success,
@@ -54,13 +55,19 @@ class FirewallTestDataGenerator:
             base_url: API base URL
         """
         print_info("Authenticating to Falcon API...")
-        self.falcon_fw = FirewallManagement(
+
+        # Create shared OAuth2 object (recommended pattern for multiple services)
+        self.auth = OAuth2(
             client_id=client_id,
             client_secret=client_secret,
             base_url=base_url
         )
 
-        if not self.falcon_fw.token_status:
+        # Initialize service classes with shared auth object
+        self.falcon_fw = FirewallManagement(auth_object=self.auth)
+        self.falcon_fp = FirewallPolicies(auth_object=self.auth)
+
+        if not self.auth.token_status:
             raise Exception("Authentication failed. Please check your credentials.")
 
         print_success("Authentication successful!")
@@ -303,6 +310,7 @@ class FirewallTestDataGenerator:
         print_info("Note: Creating empty rule groups. Rules can be added later via console.")
 
         created_ids = []
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
 
         for i in range(count):
             try:
@@ -311,7 +319,7 @@ class FirewallTestDataGenerator:
                     "Security", "Compliance", "Application", "Network",
                     "Infrastructure", "Database", "WebServer", "Custom"
                 ])
-                name = f"Test-RuleGroup-{category}-{i+1:04d}"
+                name = f"Test-RuleGroup-{category}-{timestamp}-{i+1:03d}"
                 platform_label = random.choice(["windows", "mac", "linux"])
 
                 rg_config = {
@@ -346,6 +354,93 @@ class FirewallTestDataGenerator:
         print()
         print_success(f"Created {len(created_ids)} Rule Group(s)")
         self.created_rule_groups = created_ids
+        return created_ids
+
+    def create_policies(self, count: int, rule_group_ids: List[str] = None) -> List[str]:
+        """Create multiple firewall policies
+
+        Args:
+            count: Number of policies to create
+            rule_group_ids: Optional list of rule group IDs to assign to policies
+
+        Returns:
+            List of created policy IDs
+        """
+        print_section(f"Creating {count} Firewall Policies")
+
+        created_ids = []
+        platforms = ["Windows", "Mac", "Linux"]  # Capitalized for FirewallPolicies API
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+        for i in range(count):
+            try:
+                platform = platforms[i % len(platforms)]
+                policy_name = f"Test-Policy-{platform}-{timestamp}-{i+1:03d}"
+
+                # Step 1: Create the policy using FirewallPolicies API
+                policy_body = {
+                    "resources": [
+                        {
+                            "name": policy_name,
+                            "description": f"Test firewall policy {i+1} for {platform}",
+                            "platform_name": platform  # Capitalized
+                        }
+                    ]
+                }
+
+                response = self.falcon_fp.create_policies(body=policy_body)
+
+                if response['status_code'] in [200, 201]:
+                    policy_id = response['body']['resources'][0]['id']
+                    created_ids.append(policy_id)
+
+                    # Step 2: If rule groups provided, assign them to this policy
+                    if rule_group_ids:
+                        # Determine the matching platform for rule groups
+                        platform_lower = platform.lower()
+
+                        # Select rule groups that match this platform (or random if not enough)
+                        matching_rgs = []
+                        if len(rule_group_ids) > 0:
+                            # Take up to 3 rule groups to assign
+                            num_to_assign = min(3, len(rule_group_ids))
+                            matching_rgs = random.sample(rule_group_ids, num_to_assign)
+
+                        if matching_rgs:
+                            # Update policy container with rule groups
+                            # Required fields based on API error messages
+                            update_body = {
+                                "policy_id": policy_id,
+                                "rule_group_ids": matching_rgs,
+                                "default_inbound": "ALLOW",  # or "BLOCK"
+                                "default_outbound": "ALLOW",  # or "BLOCK"
+                                "enforce": False,
+                                "local_logging": False,
+                                "tracking": "none",
+                                "test_mode": False
+                            }
+
+                            update_response = self.falcon_fw.update_policy_container(
+                                ids=policy_id,
+                                body=update_body
+                            )
+
+                            if update_response['status_code'] not in [200, 201]:
+                                print_warning(f"Policy created but failed to assign rule groups: {update_response['body'].get('errors')}")
+
+                    print_progress(i + 1, count, prefix=f"Creating policies", suffix=f"({i+1}/{count})")
+                else:
+                    print_error(f"Failed to create policy {i+1}: {response['body'].get('errors')}")
+
+                # Rate limiting
+                time.sleep(0.1)
+
+            except Exception as e:
+                print_error(f"Exception creating policy {i+1}: {e}")
+
+        print()
+        print_success(f"Created {len(created_ids)} Policy Container(s)")
+        self.created_policies = created_ids
         return created_ids
 
     def generate_placeholder_data_summary(self,
@@ -476,6 +571,8 @@ WARNING: This script creates many resources. Use only in test environments!
                        help='Only cleanup previously created resources (reads from cache)')
     parser.add_argument('--dry-run', action='store_true',
                        help='Show what would be created without creating anything')
+    parser.add_argument('--yes', '-y', action='store_true',
+                       help='Skip confirmation prompt (auto-confirm)')
 
     args = parser.parse_args()
 
@@ -539,11 +636,11 @@ WARNING: This script creates many resources. Use only in test environments!
 
     # Confirm with user
     print_warning("This will create resources in your CrowdStrike tenant!")
-    confirm = input("Type 'yes' to continue: ").strip().lower()
-
-    if confirm != 'yes':
-        print_warning("Cancelled by user")
-        sys.exit(0)
+    if not args.yes:
+        confirm = input("Type 'yes' to continue: ").strip().lower()
+        if confirm != 'yes':
+            print_warning("Cancelled by user")
+            sys.exit(0)
 
     print()
 
@@ -558,10 +655,7 @@ WARNING: This script creates many resources. Use only in test environments!
         print()
 
         # Step 3: Policies (using FirewallPolicies API)
-        print_section(f"Creating {policies} Policy Containers")
-        print_warning("Policy creation coming next...")
-        print_info("For now, create policies manually in Falcon Console:")
-        print_info("  Endpoint Security → Firewall Management → Policies → Create Policy")
+        policy_ids = generator.create_policies(policies, rule_group_ids=rg_ids)
         print()
 
         # Summary
@@ -569,13 +663,13 @@ WARNING: This script creates many resources. Use only in test environments!
         print_success(f"Successfully created:")
         print_info(f"  • {len(location_ids)} Network Locations")
         print_info(f"  • {len(rg_ids)} Rule Groups (empty - ready for rules)")
-        print_info(f"  • 0 Policies (manual creation required)")
+        print_info(f"  • {len(policy_ids)} Policies (with assigned rule groups)")
         print()
 
         print_warning("NEXT STEPS:")
         print_info("  1. (Optional) Add rules to Rule Groups via Falcon Console")
-        print_info("  2. Create Policies and assign Rule Groups")
-        print_info("  3. Test replication script")
+        print_info("  2. Test replication script")
+        print_info("  3. (Optional) Modify policy settings in Falcon Console")
 
     except KeyboardInterrupt:
         print()
