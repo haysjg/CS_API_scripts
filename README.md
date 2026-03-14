@@ -1,10 +1,10 @@
-# CrowdStrike Falcon Automation Scripts
+# Falcon FlightControl Toolkit
 
-Python automation scripts for CrowdStrike Falcon platform using the FalconPy SDK.
+Python automation toolkit for CrowdStrike Falcon FlightControl environments using the FalconPy SDK.
 
 ## Overview
 
-This repository contains scripts to automate common administrative and SOC analyst tasks in the CrowdStrike Falcon platform, enabling operations at scale. All scripts support Flight Control environments and provide interactive selection modes with colored visual output.
+This toolkit provides enterprise-grade scripts to automate configuration management and replication across Parent and Child CIDs in CrowdStrike Falcon FlightControl environments. All scripts feature interactive modes, visual progress indicators, and comprehensive error handling.
 
 ## Available Scripts
 
@@ -92,8 +92,8 @@ python script_replicate_firewall/replicate_firewall.py --config config/credentia
 
 ```bash
 # Clone the repository
-git clone https://github.com/haysjg/CS_API_scripts.git
-cd CS_API_scripts
+git clone https://github.com/haysjg/Falcon-FlightControl-Toolkit.git
+cd Falcon-FlightControl-Toolkit
 
 # Install dependencies
 pip install -r requirements.txt
@@ -160,7 +160,7 @@ All scripts in this repository share:
 ## Project Structure
 
 ```
-CS_API_scripts/
+Falcon-FlightControl-Toolkit/
 ├── script_analyze_roles/         # Custom roles analyzer
 │   ├── analyze_roles.py          # Main script
 │   ├── README.md                 # Detailed documentation
@@ -242,7 +242,7 @@ python script_analyze_roles/analyze_roles.py
 - **FalconPy SDK:** https://github.com/CrowdStrike/falconpy
 - **FalconPy Wiki:** https://github.com/CrowdStrike/falconpy/wiki
 - **CrowdStrike API Docs:** https://falcon.crowdstrike.com/documentation
-- **Issues:** https://github.com/haysjg/CS_API_scripts/issues
+- **Issues:** https://github.com/haysjg/Falcon-FlightControl-Toolkit/issues
 
 ## License
 

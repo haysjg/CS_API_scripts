@@ -57,7 +57,7 @@ Tous les identifiants sensibles ont été remplacés par des exemples génériqu
 
 **Commandes:**
 ```bash
-cd CS_API_scripts_shareable
+cd Falcon-FlightControl-Toolkit
 git push origin master:main --force
 ```
 
@@ -74,7 +74,7 @@ git push origin master:main --force
 
 **Commandes:**
 ```bash
-# Dans CS_API_scripts_shareable
+# Dans Falcon-FlightControl-Toolkit
 rm -rf .git
 git init
 git add .
@@ -113,7 +113,7 @@ git push -u origin main
 
 Pour vérifier qu'aucun CID ne reste:
 ```bash
-cd CS_API_scripts_shareable
+cd Falcon-FlightControl-Toolkit
 # Rechercher les patterns de CIDs 32-char hex qui ne sont pas des exemples fictifs
 grep -rE "[0-9a-f]{32}" . --include="*.md" --include="*.py" | grep -v "a1b2c3d4e5f6" | grep -v "fictif"
 # Devrait retourner 0 résultats (ou seulement des exemples génériques)
